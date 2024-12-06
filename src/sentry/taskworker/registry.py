@@ -16,6 +16,7 @@ from sentry.taskworker.constants import DEFAULT_PROCESSING_DEADLINE
 from sentry.taskworker.retry import Retry
 from sentry.taskworker.router import TaskRouter
 from sentry.taskworker.task import P, R, Task
+from sentry.utils import metrics
 from sentry.utils.imports import import_string
 from sentry.utils.kafka_config import get_kafka_producer_cluster_options, get_topic_definition
 
@@ -70,19 +71,44 @@ class TaskNamespace:
         retry: Retry | None = None,
         expires: int | datetime.timedelta | None = None,
         processing_deadline_duration: int | datetime.timedelta | None = None,
+        at_most_once: bool = False,
     ) -> Callable[[Callable[P, R]], Task[P, R]]:
-        """register a task, used as a decorator"""
+        """
+        Register a task.
+
+        Applied as a decorator to functions to enable them to be run
+        asynchronously via taskworkers.
+
+        Parameters
+
+        name: str
+            The name of the task. This is serialized and must be stable across deploys.
+        retry: Retry | None
+            The retry policy for the task. If none and at_most_once is not enabled
+            the Task namespace default retry policy will be used.
+        expires: int | datetime.timedelta
+            The number of seconds a task activation is valid for. After this
+            duration the activation will be discarded and not executed.
+        at_most_once : bool
+            Enable at-most-once execution. Tasks with `at_most_once` cannot
+            define retry policies, and use a worker side idempotency key to
+            prevent processing deadline based retries.
+        """
 
         def wrapped(func: Callable[P, R]) -> Task[P, R]:
+            task_retry = retry
+            if not at_most_once:
+                task_retry = retry or self.default_retry
             task = Task(
                 name=name,
                 func=func,
                 namespace=self,
-                retry=retry or self.default_retry,
+                retry=task_retry,
                 expires=expires or self.default_expires,
                 processing_deadline_duration=(
                     processing_deadline_duration or self.default_processing_deadline_duration
                 ),
+                at_most_once=at_most_once,
             )
             # TODO(taskworker) tasks should be registered into the registry
             # so that we can ensure task names are globally unique
@@ -92,6 +118,7 @@ class TaskNamespace:
         return wrapped
 
     def send_task(self, activation: TaskActivation) -> None:
+        metrics.incr("taskworker.registry.send_task", tags={"namespace": activation.namespace})
         # TODO(taskworker) producer callback handling
         self.producer.produce(
             ArroyoTopic(name=self.topic.value),

@@ -1,7 +1,9 @@
-import {useCallback} from 'react';
+import {useCallback, useState} from 'react';
 import styled from '@emotion/styled';
 import type {Location} from 'history';
 
+import Feature from 'sentry/components/acl/feature';
+import {Alert} from 'sentry/components/alert';
 import {Button} from 'sentry/components/button';
 import ButtonBar from 'sentry/components/buttonBar';
 import FeedbackWidgetButton from 'sentry/components/feedback/widget/feedbackWidgetButton';
@@ -11,6 +13,7 @@ import {EnvironmentPageFilter} from 'sentry/components/organizations/environment
 import PageFilterBar from 'sentry/components/organizations/pageFilterBar';
 import PageFiltersContainer from 'sentry/components/organizations/pageFilters/container';
 import {ProjectPageFilter} from 'sentry/components/organizations/projectPageFilter';
+import {PageHeadingQuestionTooltip} from 'sentry/components/pageHeadingQuestionTooltip';
 import {
   EAPSpanSearchQueryBuilder,
   SpanSearchQueryBuilder,
@@ -18,8 +21,12 @@ import {
 import SentryDocumentTitle from 'sentry/components/sentryDocumentTitle';
 import {t} from 'sentry/locale';
 import {space} from 'sentry/styles/space';
+import type {Confidence} from 'sentry/types/organization';
 import {DiscoverDatasets} from 'sentry/utils/discover/types';
-import {ALLOWED_EXPLORE_VISUALIZE_AGGREGATES} from 'sentry/utils/fields';
+import {
+  type AggregationKey,
+  ALLOWED_EXPLORE_VISUALIZE_AGGREGATES,
+} from 'sentry/utils/fields';
 import {useLocation} from 'sentry/utils/useLocation';
 import {useNavigate} from 'sentry/utils/useNavigate';
 import useOrganization from 'sentry/utils/useOrganization';
@@ -46,10 +53,7 @@ function ExploreContentImpl({}: ExploreContentProps) {
   const organization = useOrganization();
   const {selection} = usePageFilters();
   const [dataset] = useDataset();
-
-  const [resultMode] = useResultMode();
-  const supportedAggregates =
-    resultMode === 'aggregate' ? ALLOWED_EXPLORE_VISUALIZE_AGGREGATES : [];
+  const [resultsMode] = useResultMode();
 
   const numberTags = useSpanTags('number');
   const stringTags = useSpanTags('string');
@@ -70,29 +74,62 @@ function ExploreContentImpl({}: ExploreContentProps) {
     });
   }, [location, navigate]);
 
+  const [confidence, setConfidence] = useState<Confidence>(null);
+  const [chartError, setChartError] = useState<string>('');
+  const [tableError, setTableError] = useState<string>('');
+
+  const maxPickableDays = 7;
+
   return (
-    <SentryDocumentTitle title={t('Explore')} orgSlug={organization.slug}>
-      <PageFiltersContainer>
+    <SentryDocumentTitle title={t('Traces')} orgSlug={organization.slug}>
+      <PageFiltersContainer maxPickableDays={maxPickableDays}>
         <Layout.Page>
           <Layout.Header>
             <Layout.HeaderContent>
-              <Layout.Title>{t('Explore')}</Layout.Title>
+              <Layout.Title>
+                {t('Traces')}
+                <PageHeadingQuestionTooltip
+                  docsUrl="https://github.com/getsentry/sentry/discussions/81239"
+                  title={t(
+                    'Find problematic spans/traces or compute real-time metrics via aggregation.'
+                  )}
+                  linkLabel={t('Read the Discussion')}
+                />
+              </Layout.Title>
             </Layout.HeaderContent>
             <Layout.HeaderActions>
               <ButtonBar gap={1}>
-                <Button onClick={switchToOldTraceExplorer} size="sm">
-                  {t('Switch to Old Trace Explore')}
-                </Button>
+                <Feature organization={organization} features="visibility-explore-admin">
+                  <Button onClick={switchToOldTraceExplorer} size="sm">
+                    {t('Switch to Old Trace Explore')}
+                  </Button>
+                </Feature>
                 <FeedbackWidgetButton />
               </ButtonBar>
             </Layout.HeaderActions>
           </Layout.Header>
           <Body>
+            {confidence === 'low' && (
+              <ConfidenceAlert type="warning" showIcon>
+                {t(
+                  'Your low sample count may impact the accuracy of this extrapolation. Edit your query or increase your sample rate.'
+                )}
+              </ConfidenceAlert>
+            )}
             <TopSection>
               <StyledPageFilterBar condensed>
                 <ProjectPageFilter />
                 <EnvironmentPageFilter />
-                <DatePageFilter />
+                <DatePageFilter
+                  defaultPeriod="7d"
+                  maxPickableDays={maxPickableDays}
+                  relativeOptions={({arbitraryOptions}) => ({
+                    ...arbitraryOptions,
+                    '1h': t('Last 1 hour'),
+                    '24h': t('Last 24 hours'),
+                    '7d': t('Last 7 days'),
+                  })}
+                />
               </StyledPageFilterBar>
               {dataset === DiscoverDatasets.SPANS_INDEXED ? (
                 <SpanSearchQueryBuilder
@@ -107,7 +144,23 @@ function ExploreContentImpl({}: ExploreContentProps) {
                   initialQuery={userQuery}
                   onSearch={setUserQuery}
                   searchSource="explore"
-                  supportedAggregates={supportedAggregates}
+                  getFilterTokenWarning={
+                    resultsMode === 'samples'
+                      ? key => {
+                          if (
+                            ALLOWED_EXPLORE_VISUALIZE_AGGREGATES.includes(
+                              key as AggregationKey
+                            )
+                          ) {
+                            return t(
+                              "This key won't affect the results because samples mode does not support aggregate functions"
+                            );
+                          }
+                          return undefined;
+                        }
+                      : undefined
+                  }
+                  supportedAggregates={ALLOWED_EXPLORE_VISUALIZE_AGGREGATES}
                   numberTags={numberTags}
                   stringTags={stringTags}
                 />
@@ -115,8 +168,17 @@ function ExploreContentImpl({}: ExploreContentProps) {
             </TopSection>
             <ExploreToolbar extras={toolbarExtras} />
             <MainSection fullWidth>
-              <ExploreCharts query={userQuery} />
-              <ExploreTables />
+              {(tableError || chartError) && (
+                <Alert type="error" showIcon>
+                  {tableError || chartError}
+                </Alert>
+              )}
+              <ExploreCharts
+                query={userQuery}
+                setConfidence={setConfidence}
+                setError={setChartError}
+              />
+              <ExploreTables confidence={confidence} setError={setTableError} />
             </MainSection>
           </Body>
         </Layout.Page>
@@ -129,7 +191,7 @@ export function ExploreContent(props: ExploreContentProps) {
   const [dataset] = useDataset();
 
   return (
-    <SpanTagsProvider dataset={dataset}>
+    <SpanTagsProvider dataset={dataset} enabled>
       <ExploreContentImpl {...props} />
     </SpanTagsProvider>
   );
@@ -139,12 +201,18 @@ const Body = styled(Layout.Body)`
   gap: ${space(2)};
 
   @media (min-width: ${p => p.theme.breakpoints.medium}) {
-    grid-template-columns: 300px minmax(100px, auto);
+    grid-template-columns: 350px minmax(100px, auto);
+    gap: ${space(2)};
   }
 
   @media (min-width: ${p => p.theme.breakpoints.xxlarge}) {
-    grid-template-columns: 350px minmax(100px, auto);
+    grid-template-columns: 400px minmax(100px, auto);
   }
+`;
+
+const ConfidenceAlert = styled(Alert)`
+  grid-column: 1/3;
+  margin: 0;
 `;
 
 const TopSection = styled('div')`
@@ -154,12 +222,12 @@ const TopSection = styled('div')`
   margin-bottom: ${space(2)};
 
   @media (min-width: ${p => p.theme.breakpoints.large}) {
-    grid-template-columns: minmax(300px, auto) 1fr;
+    grid-template-columns: minmax(350px, auto) 1fr;
     margin-bottom: 0;
   }
 
   @media (min-width: ${p => p.theme.breakpoints.xxlarge}) {
-    grid-template-columns: minmax(350px, auto) 1fr;
+    grid-template-columns: minmax(400px, auto) 1fr;
   }
 `;
 

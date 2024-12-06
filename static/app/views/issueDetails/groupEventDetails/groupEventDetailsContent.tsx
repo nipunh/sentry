@@ -19,13 +19,10 @@ import EventReplay from 'sentry/components/events/eventReplay';
 import {EventSdk} from 'sentry/components/events/eventSdk';
 import AggregateSpanDiff from 'sentry/components/events/eventStatisticalDetector/aggregateSpanDiff';
 import EventBreakpointChart from 'sentry/components/events/eventStatisticalDetector/breakpointChart';
-import {EventAffectedTransactions} from 'sentry/components/events/eventStatisticalDetector/eventAffectedTransactions';
 import EventComparison from 'sentry/components/events/eventStatisticalDetector/eventComparison';
 import {EventDifferentialFlamegraph} from 'sentry/components/events/eventStatisticalDetector/eventDifferentialFlamegraph';
-import {EventFunctionComparisonList} from 'sentry/components/events/eventStatisticalDetector/eventFunctionComparisonList';
 import {EventRegressionSummary} from 'sentry/components/events/eventStatisticalDetector/eventRegressionSummary';
 import {EventFunctionBreakpointChart} from 'sentry/components/events/eventStatisticalDetector/functionBreakpointChart';
-import {TransactionsDeltaProvider} from 'sentry/components/events/eventStatisticalDetector/transactionsDeltaProvider';
 import {EventTagsAndScreenshot} from 'sentry/components/events/eventTagsAndScreenshot';
 import {ScreenshotDataSection} from 'sentry/components/events/eventTagsAndScreenshot/screenshot/screenshotDataSection';
 import EventTagsDataSection from 'sentry/components/events/eventTagsAndScreenshot/tags';
@@ -110,7 +107,6 @@ export function EventDetailsContent({
   const mechanism = event.tags?.find(({key}) => key === 'mechanism')?.value;
   const isANR = mechanism === 'ANR' || mechanism === 'AppExitInfo';
   const groupingCurrentLevel = group?.metadata?.current_level;
-  const hasFeatureFlagSection = organization.features.includes('feature-flag-ui');
 
   const hasActionableItems = actionableItemsEnabled({
     eventId: event.id,
@@ -140,6 +136,9 @@ export function EventDetailsContent({
       {hasStreamlinedUI && <HighlightsIconSummary event={event} group={group} />}
       {hasActionableItems && !hasStreamlinedUI && (
         <ActionableItems event={event} project={project} isShare={false} />
+      )}
+      {issueTypeConfig.tags.enabled && (
+        <HighlightsDataSection event={event} project={project} viewAllRef={tagsRef} />
       )}
       <StyledDataSection>
         {!hasStreamlinedUI && <TraceDataSection event={event} />}
@@ -221,9 +220,7 @@ export function EventDetailsContent({
           project={project}
         />
       )}
-      {!hasStreamlinedUI && issueTypeConfig.tags.enabled && (
-        <HighlightsDataSection event={event} project={project} viewAllRef={tagsRef} />
-      )}
+
       <EventEvidence event={event} group={group} project={project} />
       {defined(eventEntries[EntryType.MESSAGE]) && (
         <EntryErrorBoundary type={EntryType.MESSAGE}>
@@ -333,35 +330,23 @@ export function EventDetailsContent({
       )}
       {issueTypeConfig.profilingDurationRegression.enabled && (
         <Fragment>
-          <TransactionsDeltaProvider event={event} project={project}>
-            <ErrorBoundary mini>
-              <EventFunctionBreakpointChart event={event} />
-            </ErrorBoundary>
-            <ErrorBoundary mini>
-              <EventAffectedTransactions event={event} group={group} project={project} />
-            </ErrorBoundary>
-            <ErrorBoundary mini>
-              <InterimSection
-                type={SectionKey.REGRESSION_FLAMEGRAPH}
-                title={t('Regression Flamegraph')}
-              >
-                <b>{t('Largest Changes in Call Stack Frequency')}</b>
-                <p>
-                  {t(`See which functions changed the most before and after the regression. The
-              frame with the largest increase in call stack population likely
-              contributed to the cause for the duration regression.`)}
-                </p>
-                <EventDifferentialFlamegraph event={event} />
-              </InterimSection>
-            </ErrorBoundary>
-            <ErrorBoundary mini>
-              <EventFunctionComparisonList
-                event={event}
-                group={group}
-                project={project}
-              />
-            </ErrorBoundary>
-          </TransactionsDeltaProvider>
+          <ErrorBoundary mini>
+            <EventFunctionBreakpointChart event={event} />
+          </ErrorBoundary>
+          <ErrorBoundary mini>
+            <InterimSection
+              type={SectionKey.REGRESSION_FLAMEGRAPH}
+              title={t('Regression Flamegraph')}
+            >
+              <b>{t('Largest Changes in Call Stack Frequency')}</b>
+              <p>
+                {t(`See which functions changed the most before and after the regression. The
+            frame with the largest increase in call stack population likely
+            contributed to the cause for the duration regression.`)}
+              </p>
+              <EventDifferentialFlamegraph event={event} />
+            </InterimSection>
+          </ErrorBoundary>
         </Fragment>
       )}
       <EventHydrationDiff event={event} group={group} />
@@ -404,7 +389,7 @@ export function EventDetailsContent({
         </EntryErrorBoundary>
       )}
       <BreadcrumbsDataSection event={event} group={group} project={project} />
-      {hasStreamlinedUI && (
+      {hasStreamlinedUI && event.contexts.trace?.trace_id && (
         <EventTraceView group={group} event={event} organization={organization} />
       )}
       {defined(eventEntries[EntryType.REQUEST]) && (
@@ -415,18 +400,11 @@ export function EventDetailsContent({
       {issueTypeConfig.tags.enabled ? (
         <Fragment>
           {hasStreamlinedUI ? (
-            <Fragment>
-              <HighlightsDataSection
-                event={event}
-                project={project}
-                viewAllRef={tagsRef}
-              />
-              <EventTagsDataSection
-                event={event}
-                projectSlug={project.slug}
-                ref={tagsRef}
-              />
-            </Fragment>
+            <EventTagsDataSection
+              event={event}
+              projectSlug={project.slug}
+              ref={tagsRef}
+            />
           ) : (
             <div ref={tagsRef}>
               <EventTagsAndScreenshot event={event} projectSlug={project.slug} />
@@ -435,9 +413,9 @@ export function EventDetailsContent({
         </Fragment>
       ) : null}
       <EventContexts group={group} event={event} />
-      {hasFeatureFlagSection && (
+      <ErrorBoundary mini message={t('There was a problem loading feature flags.')}>
         <EventFeatureFlagList group={group} project={project} event={event} />
-      )}
+      </ErrorBoundary>
       <EventExtraData event={event} />
       <EventPackageData event={event} />
       <EventDevice event={event} />

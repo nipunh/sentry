@@ -1,4 +1,5 @@
-import {Fragment, useMemo} from 'react';
+import type {Dispatch, SetStateAction} from 'react';
+import {Fragment, useEffect, useMemo} from 'react';
 import styled from '@emotion/styled';
 
 import EmptyStateWarning from 'sentry/components/emptyStateWarning';
@@ -8,15 +9,15 @@ import {CHART_PALETTE} from 'sentry/constants/chartPalette';
 import {IconArrow} from 'sentry/icons/iconArrow';
 import {IconWarning} from 'sentry/icons/iconWarning';
 import {t} from 'sentry/locale';
-import type {NewQuery} from 'sentry/types/organization';
+import type {Confidence, NewQuery} from 'sentry/types/organization';
 import {defined} from 'sentry/utils';
 import EventView from 'sentry/utils/discover/eventView';
 import type {Sort} from 'sentry/utils/discover/fields';
 import {
   fieldAlignment,
-  formatParsedFunction,
   getAggregateAlias,
   parseFunction,
+  prettifyParsedFunction,
 } from 'sentry/utils/discover/fields';
 import {MutableSearch} from 'sentry/utils/tokenizeSearch';
 import useOrganization from 'sentry/utils/useOrganization';
@@ -32,15 +33,14 @@ import {
   useTableStyles,
 } from 'sentry/views/explore/components/table';
 import {useSpanTags} from 'sentry/views/explore/contexts/spanTagsContext';
+import {useAnalytics} from 'sentry/views/explore/hooks/useAnalytics';
 import {useDataset} from 'sentry/views/explore/hooks/useDataset';
 import {useGroupBys} from 'sentry/views/explore/hooks/useGroupBys';
 import {useSorts} from 'sentry/views/explore/hooks/useSorts';
+import {TOP_EVENTS_LIMIT, useTopEvents} from 'sentry/views/explore/hooks/useTopEvents';
 import {useUserQuery} from 'sentry/views/explore/hooks/useUserQuery';
 import {useVisualizes} from 'sentry/views/explore/hooks/useVisualizes';
 import {useSpansQuery} from 'sentry/views/insights/common/queries/useSpansQuery';
-
-import {useAnalytics} from '../hooks/useAnalytics';
-import {TOP_EVENTS_LIMIT, useTopEvents} from '../hooks/useTopEvents';
 
 import {FieldRenderer} from './fieldRenderer';
 
@@ -49,19 +49,38 @@ export function formatSort(sort: Sort): string {
   return `${direction}${getAggregateAlias(sort.field)}`;
 }
 
-interface AggregatesTableProps {}
+interface AggregatesTableProps {
+  confidence: Confidence;
+  setError: Dispatch<SetStateAction<string>>;
+}
 
-export function AggregatesTable({}: AggregatesTableProps) {
+export function AggregatesTable({confidence, setError}: AggregatesTableProps) {
   const {selection} = usePageFilters();
   const topEvents = useTopEvents();
   const organization = useOrganization();
-  const [dataset] = useDataset();
+  const [dataset] = useDataset({allowRPC: true});
   const {groupBys} = useGroupBys();
   const [visualizes] = useVisualizes();
   const fields = useMemo(() => {
-    return [...groupBys, ...visualizes.flatMap(visualize => visualize.yAxes)].filter(
-      Boolean
-    );
+    const allFields: string[] = [];
+
+    for (const visualize of visualizes) {
+      for (const yAxis of visualize.yAxes) {
+        if (allFields.includes(yAxis)) {
+          continue;
+        }
+        allFields.push(yAxis);
+      }
+    }
+
+    for (const groupBy of groupBys) {
+      if (allFields.includes(groupBy)) {
+        continue;
+      }
+      allFields.push(groupBy);
+    }
+
+    return allFields.filter(Boolean);
   }, [groupBys, visualizes]);
   const [sorts, setSorts] = useSorts({fields});
   const [query] = useUserQuery();
@@ -95,13 +114,19 @@ export function AggregatesTable({}: AggregatesTableProps) {
     referrer: 'api.explore.spans-aggregates-table',
   });
 
+  useEffect(() => {
+    setError(result.error?.message ?? '');
+  }, [setError, result.error?.message]);
+
   useAnalytics({
-    result,
+    resultLength: result.data?.length,
+    resultMode: 'aggregates',
+    resultStatus: result.status,
     visualizes,
     organization,
     columns: groupBys,
     userQuery: query,
-    resultsMode: 'aggregate',
+    confidence,
   });
 
   const {tableStyles} = useTableStyles({
@@ -140,7 +165,7 @@ export function AggregatesTable({}: AggregatesTableProps) {
 
               const func = parseFunction(field);
               if (func) {
-                label = formatParsedFunction(func);
+                label = prettifyParsedFunction(func);
               }
 
               const direction = sorts.find(s => s.field === field)?.kind;
