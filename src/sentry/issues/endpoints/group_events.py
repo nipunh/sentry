@@ -34,6 +34,7 @@ from sentry.apidocs.parameters import GlobalParams, IssueParams
 from sentry.apidocs.utils import inline_sentry_response_serializer
 from sentry.eventstore.models import Event
 from sentry.exceptions import InvalidParams, InvalidSearchQuery
+from sentry.issues.endpoints.util import get_event_query
 from sentry.search.events.types import ParamsType
 from sentry.search.utils import InvalidQuery, parse_query
 
@@ -108,7 +109,7 @@ class GroupEventsEndpoint(GroupEndpoint, EnvironmentMixin):
 
         try:
             environments = get_environments(request, group.project.organization)
-            query = self._get_search_query(request, group, environments)
+            query = get_event_query(request, group, environments)
         except InvalidQuery as exc:
             return Response({"detail": str(exc)}, status=400)
         except (NoResults, ResourceDoesNotExist):
@@ -197,16 +198,3 @@ class GroupEventsEndpoint(GroupEndpoint, EnvironmentMixin):
             on_results=lambda results: serialize(results, request.user, serializer),
             paginator=GenericOffsetPaginator(data_fn=data_fn),
         )
-
-    def _get_search_query(
-        self, request: Request, group: Group, environments: Sequence[Environment]
-    ) -> str | None:
-        raw_query = request.GET.get("query")
-
-        if raw_query:
-            query_kwargs = parse_query([group.project], raw_query, request.user, environments)
-            query = query_kwargs.pop("query", None)
-        else:
-            query = None
-
-        return query

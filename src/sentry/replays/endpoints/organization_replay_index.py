@@ -49,21 +49,24 @@ class OrganizationReplayIndexEndpoint(OrganizationEndpoint):
         """
         Return a list of replays belonging to an organization.
         """
-
+        print("got here 1")
         if not features.has("organizations:session-replay", organization, actor=request.user):
             return Response(status=404)
         try:
             filter_params = self.get_filter_params(request, organization)
         except NoProjects:
             return Response({"data": []}, status=200)
+        print("got here 2")
 
         result = ReplayValidator(data=request.GET)
         if not result.is_valid():
             raise ParseError(result.errors)
+        print("got here 3")
 
         for key, value in result.validated_data.items():
             if key not in filter_params:
                 filter_params[key] = value  # type: ignore[literal-required]
+        print("got here 4")
 
         # We allow the requester to make their own decision about where to source the data.
         # Because this is a stateless, isolated interaction its okay for the user to decide where

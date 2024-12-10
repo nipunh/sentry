@@ -16,57 +16,10 @@ from sentry.api.paginator import DateTimePaginator
 from sentry.api.serializers import EventAttachmentSerializer, serialize
 from sentry.api.utils import get_date_range_from_params
 from sentry.exceptions import InvalidParams, InvalidSearchQuery
+from sentry.issues.endpoints.util import get_event_ids_from_filters, get_event_query
 from sentry.models.eventattachment import EventAttachment, event_attachment_screenshot_filter
 from sentry.models.group import Group
 from sentry.search.events.types import ParamsType
-
-
-def get_event_ids_from_filters(
-    request: Request,
-    group: Group,
-    start: datetime | None,
-    end: datetime | None,
-) -> list[str] | None:
-    """
-    Returns a list of Event IDs matching the environment/query filters.
-    If neither are provided it will return `None`, skipping the filter by `EventAttachment.event_id` matches.
-    If at least one is provided, but nothing is matched, it will return `[]`, which will result in no attachment matches (as expected).
-    """
-    default_end = timezone.now()
-    default_start = default_end - timedelta(days=90)
-    try:
-        environments = get_environments(request, group.project.organization)
-    except ResourceDoesNotExist:
-        environments = []
-    query = request.GET.get("query", "")
-
-    # Exit early if no query or environment is specified
-    if not query and not environments:
-        return None
-
-    params: ParamsType = {
-        "project_id": [group.project_id],
-        "organization_id": group.project.organization_id,
-        "start": start if start else default_start,
-        "end": end if end else default_end,
-    }
-
-    if environments:
-        params["environment"] = [env.name for env in environments]
-
-    try:
-        snuba_query = get_query_builder_for_group(
-            query=query,
-            snuba_params=params,
-            group=group,
-            limit=10000,
-            offset=0,
-        )
-    except InvalidSearchQuery as e:
-        raise ParseError(detail=str(e))
-    referrer = f"api.group-attachments.{group.issue_category.name.lower()}"
-    results = snuba_query.run_query(referrer=referrer)
-    return [evt["id"] for evt in results["data"]]
 
 
 @region_silo_endpoint
@@ -115,8 +68,10 @@ class GroupAttachmentsEndpoint(GroupEndpoint, EnvironmentMixin):
 
         if not event_ids:
             event_ids = get_event_ids_from_filters(
+                referrer=f"api.group-attachments.{group.issue_category.name.lower()}",
                 request=request,
                 group=group,
+                query=request.GET.get("query", ""),
                 start=start,
                 end=end,
             )
