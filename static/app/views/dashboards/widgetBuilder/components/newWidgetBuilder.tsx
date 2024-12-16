@@ -1,8 +1,9 @@
-import {Fragment, useEffect} from 'react';
+import {Fragment, useEffect, useState} from 'react';
 import {css} from '@emotion/react';
 import styled from '@emotion/styled';
 import {AnimatePresence, motion} from 'framer-motion';
 
+import {CustomMeasurementsProvider} from 'sentry/utils/customMeasurements/customMeasurementsProvider';
 import EventView from 'sentry/utils/discover/eventView';
 import {DiscoverDatasets} from 'sentry/utils/discover/types';
 import {MetricsCardinalityProvider} from 'sentry/utils/performance/contexts/metricsCardinality';
@@ -10,6 +11,7 @@ import {MEPSettingProvider} from 'sentry/utils/performance/contexts/metricsEnhan
 import useKeyPress from 'sentry/utils/useKeyPress';
 import {useLocation} from 'sentry/utils/useLocation';
 import useOrganization from 'sentry/utils/useOrganization';
+import usePageFilters from 'sentry/utils/usePageFilters';
 import {
   type DashboardDetails,
   type DashboardFilters,
@@ -43,6 +45,9 @@ function WidgetBuilderV2({
 }: WidgetBuilderV2Props) {
   const escapeKeyPressed = useKeyPress('Escape');
   const organization = useOrganization();
+  const {selection} = usePageFilters();
+
+  const [queryConditionsValid, setQueryConditionsValid] = useState<boolean>(true);
 
   useEffect(() => {
     if (escapeKeyPressed) {
@@ -58,24 +63,28 @@ function WidgetBuilderV2({
       <AnimatePresence>
         {isOpen && (
           <WidgetBuilderProvider>
-            <SpanTagsProvider
-              dataset={DiscoverDatasets.SPANS_EAP}
-              enabled={organization.features.includes('dashboards-eap')}
-            >
-              <ContainerWithoutSidebar>
-                <WidgetBuilderContainer>
-                  <WidgetBuilderSlideout
-                    isOpen={isOpen}
-                    onClose={onClose}
-                    onSave={onSave}
-                  />
-                  <WidgetPreviewContainer
-                    dashboardFilters={dashboardFilters}
-                    dashboard={dashboard}
-                  />
-                </WidgetBuilderContainer>
-              </ContainerWithoutSidebar>
-            </SpanTagsProvider>
+            <CustomMeasurementsProvider organization={organization} selection={selection}>
+              <SpanTagsProvider
+                dataset={DiscoverDatasets.SPANS_EAP}
+                enabled={organization.features.includes('dashboards-eap')}
+              >
+                <ContainerWithoutSidebar>
+                  <WidgetBuilderContainer>
+                    <WidgetBuilderSlideout
+                      isOpen={isOpen}
+                      onClose={onClose}
+                      onSave={onSave}
+                      onQueryConditionChange={setQueryConditionsValid}
+                    />
+                    <WidgetPreviewContainer
+                      dashboardFilters={dashboardFilters}
+                      dashboard={dashboard}
+                      isWidgetInvalid={!queryConditionsValid}
+                    />
+                  </WidgetBuilderContainer>
+                </ContainerWithoutSidebar>
+              </SpanTagsProvider>
+            </CustomMeasurementsProvider>
           </WidgetBuilderProvider>
         )}
       </AnimatePresence>
@@ -88,9 +97,11 @@ export default WidgetBuilderV2;
 function WidgetPreviewContainer({
   dashboardFilters,
   dashboard,
+  isWidgetInvalid,
 }: {
   dashboard: DashboardDetails;
   dashboardFilters: DashboardFilters;
+  isWidgetInvalid: boolean;
 }) {
   const {state} = useWidgetBuilderContext();
   const organization = useOrganization();
@@ -119,11 +130,14 @@ function WidgetPreviewContainer({
                   stiffness: 500,
                   damping: 50,
                 }}
-                isTable={state.displayType === DisplayType.TABLE}
+                style={{
+                  height: state.displayType === DisplayType.TABLE ? 'auto' : '400px',
+                }}
               >
                 <WidgetPreview
                   dashboardFilters={dashboardFilters}
                   dashboard={dashboard}
+                  isWidgetInvalid={isWidgetInvalid}
                 />
               </SampleWidgetCard>
             </MEPSettingProvider>
@@ -152,10 +166,9 @@ const Backdrop = styled('div')`
   opacity: 0;
 `;
 
-const SampleWidgetCard = styled(motion.div)<{isTable: boolean}>`
+const SampleWidgetCard = styled(motion.div)`
   width: 30vw;
   min-width: 400px;
-  height: ${p => (p.isTable ? 'auto' : '400px')};
   border: 2px dashed ${p => p.theme.border};
   border-radius: ${p => p.theme.borderRadius};
   background-color: ${p => p.theme.background};

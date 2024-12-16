@@ -25,7 +25,6 @@ from django.core.files.base import ContentFile
 from django.db import router, transaction
 from django.test.utils import override_settings
 from django.utils import timezone
-from django.utils.encoding import force_str
 from django.utils.text import slugify
 
 from sentry.auth.access import RpcBackedAccess
@@ -620,7 +619,7 @@ class Factories:
         status: int | None = ReleaseStatus.OPEN,
     ):
         if version is None:
-            version = force_str(hexlify(os.urandom(20)))
+            version = hexlify(os.urandom(20)).decode()
 
         if date_added is None:
             date_added = timezone.now()
@@ -1004,6 +1003,9 @@ class Factories:
     @staticmethod
     @assume_test_silo_mode(SiloMode.REGION)
     def create_group(project, **kwargs):
+        from sentry.models.group import GroupStatus
+        from sentry.types.group import GroupSubStatus
+
         kwargs.setdefault("message", "Hello world")
         kwargs.setdefault("data", {})
         if "type" not in kwargs["data"]:
@@ -1013,6 +1015,10 @@ class Factories:
         if "metadata" in kwargs:
             metadata = kwargs.pop("metadata")
             kwargs["data"].setdefault("metadata", {}).update(metadata)
+        if "status" not in kwargs:
+            kwargs["status"] = GroupStatus.UNRESOLVED
+            kwargs["substatus"] = GroupSubStatus.NEW
+
         return Group.objects.create(project=project, **kwargs)
 
     @staticmethod
