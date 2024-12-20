@@ -21,6 +21,11 @@ _fingerprint_var_re = re.compile(r"^\{\{\s*(\S+)\s*\}\}$")
 
 
 def parse_fingerprint_entry_as_variable(value: str) -> str | None:
+    """
+    Determine if the given fingerprint entry is a variable, and if it is, return its key (that is,
+    extract the variable name from a variable string of the form "{{ var_name }}"). If the given
+    entry isn't the correct form to be a variable, return None.
+    """
     match = _fingerprint_var_re.match(value)
     if match is not None:
         return match.group(1)
