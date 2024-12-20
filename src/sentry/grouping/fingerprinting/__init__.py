@@ -566,6 +566,7 @@ class FingerprintingVisitor(NodeVisitorBase):
         changelog = []
         rules = []
         in_header = True
+
         for child in children:
             if isinstance(child, str):
                 if in_header and child.startswith("##"):
@@ -575,6 +576,7 @@ class FingerprintingVisitor(NodeVisitorBase):
             elif child is not None:
                 rules.append(child)
                 in_header = False
+
         return FingerprintingRules(
             rules=rules,
             changelog=inspect.cleandoc("\n".join(changelog)).rstrip() or None,
