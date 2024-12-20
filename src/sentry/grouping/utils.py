@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 _fingerprint_var_re = re.compile(r"^\{\{\s*(\S+)\s*\}\}$")
 
 
-def parse_fingerprint_var(value: str) -> str | None:
+def parse_fingerprint_entry_as_variable(value: str) -> str | None:
     match = _fingerprint_var_re.match(value)
     if match is not None:
         return match.group(1)
@@ -28,7 +28,7 @@ def parse_fingerprint_var(value: str) -> str | None:
 
 
 def is_default_fingerprint_var(value: str) -> bool:
-    return parse_fingerprint_var(value) == "default"
+    return parse_fingerprint_entry_as_variable(value) == "default"
 
 
 def hash_from_values(values: Iterable[str | int | UUID | ExceptionGroupingComponent]) -> str:
@@ -125,7 +125,7 @@ def get_fingerprint_value(var: str, data: NodeData | Mapping[str, Any]) -> str |
 
 def resolve_fingerprint_values(fingerprint: list[str], event_data: NodeData) -> list[str]:
     def _get_fingerprint_value(value: str) -> str:
-        var = parse_fingerprint_var(value)
+        var = parse_fingerprint_entry_as_variable(value)
         if var is None:
             return value
         rv = get_fingerprint_value(var, event_data)
