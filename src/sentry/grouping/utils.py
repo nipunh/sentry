@@ -17,12 +17,12 @@ if TYPE_CHECKING:
     from sentry.grouping.component import ExceptionGroupingComponent
 
 
-_fingerprint_var_re = re.compile(r"\{\{\s*(\S+)\s*\}\}")
+_fingerprint_var_re = re.compile(r"^\{\{\s*(\S+)\s*\}\}$")
 
 
 def parse_fingerprint_var(value: str) -> str | None:
     match = _fingerprint_var_re.match(value)
-    if match is not None and match.end() == len(value):
+    if match is not None:
         return match.group(1)
     return None
 
